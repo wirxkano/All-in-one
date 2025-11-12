@@ -82,7 +82,28 @@ class RealESRNetModel(SRModel):
     @torch.no_grad()
     def feed_data(self, data):
         """Accept data from dataloader, and then add two-order degradations to obtain LQ images."""
-        if self.is_train and self.opt.get("high_order_degradation", True):
+        if self.is_train and self.opt.get("custom_degradation", True):
+            self.gt = data["gt"].to(self.device)
+            self.gt_usm = self.usm_sharpener(self.gt)
+            self.lq = self.degradation_model.random_shuffle_degradations(
+                self.gt, scale_factor=0.25
+            ).to(self.device)
+
+            # random crop
+            gt_size = self.opt["gt_size"]
+            (self.gt, self.gt_usm), self.lq = paired_random_crop(
+                [self.gt, self.gt_usm], self.lq, gt_size, self.opt["scale"]
+            )
+
+            # training pair pool
+            self._dequeue_and_enqueue()
+            # sharpen self.gt again, as we have changed the self.gt with self._dequeue_and_enqueue
+            self.gt_usm = self.usm_sharpener(self.gt)
+            self.lq = (
+                self.lq.contiguous()
+            )  # for the warning: grad and param do not obey the gradient layout contract
+
+        elif self.is_train and self.opt.get("high_order_degradation", True):
             # training data synthesis
             self.gt = data["gt"].to(self.device)
             # USM sharpen the GT images
@@ -222,28 +243,6 @@ class RealESRNetModel(SRModel):
 
             # training pair pool
             self._dequeue_and_enqueue()
-            self.lq = (
-                self.lq.contiguous()
-            )  # for the warning: grad and param do not obey the gradient layout contract
-
-        elif self.is_train and self.opt.get("custom_degradation", True):
-            print("=" * 50, "custom degradation")
-            self.gt = data["gt"].to(self.device)
-            self.gt_usm = self.usm_sharpener(self.gt)
-            self.lq = self.degradation_model.random_shuffle_degradations(
-                self.gt.unsqueeze(0), scale_factor=0.25
-            )
-
-            # random crop
-            gt_size = self.opt["gt_size"]
-            (self.gt, self.gt_usm), self.lq = paired_random_crop(
-                [self.gt, self.gt_usm], self.lq, gt_size, self.opt["scale"]
-            )
-
-            # training pair pool
-            self._dequeue_and_enqueue()
-            # sharpen self.gt again, as we have changed the self.gt with self._dequeue_and_enqueue
-            self.gt_usm = self.usm_sharpener(self.gt)
             self.lq = (
                 self.lq.contiguous()
             )  # for the warning: grad and param do not obey the gradient layout contract

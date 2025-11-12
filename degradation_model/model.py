@@ -13,8 +13,10 @@ class DegradationModel:
         self.sinc_settings = settings["sinc_settings"]
         self.noise_settings = settings["noise_settings"]
         self.jpeg_compression_settings = settings["jpeg_compression_settings"]
+        self.device = torch.device("cuda" if torch.cuda.is_available else "cpu")
 
     def add_blur_kernel(self, image_tensor: Tensor, blur_range: tuple):
+        image_tensor = image_tensor.to(self.device)
         kernel_list = self.blur_settings["kernel_list"]
         kernel_prob = self.blur_settings["kernel_prob"]
         kernel_size = random.choice(self.blur_settings["kernel_size"])
@@ -35,7 +37,7 @@ class DegradationModel:
         )
 
         blur_kernel = torch.FloatTensor(blur_kernel).unsqueeze(0).unsqueeze(0)
-        blur_kernel = blur_kernel.repeat(3, 1, 1, 1)
+        blur_kernel = blur_kernel.repeat(3, 1, 1, 1).to(self.device)
 
         padding = kernel_size // 2
         image_tensor = F.pad(
@@ -70,6 +72,7 @@ class DegradationModel:
         return image_tensor.unsqueeze(0)
 
     def add_sinc_kernel(self, image_tensor: Tensor):
+        image_tensor = image_tensor.to(self.device)
         kernel_size = random.choice(self.sinc_settings["kernel_size"])
         if kernel_size < 13:
             omega_c = np.random.uniform(np.pi / 3, np.pi)
@@ -78,7 +81,7 @@ class DegradationModel:
 
         sinc_kernel = circular_lowpass_kernel(omega_c, kernel_size, pad_to=21)
         sinc_kernel = torch.FloatTensor(sinc_kernel).unsqueeze(0)
-        sinc_kernel = sinc_kernel.repeat(3, 1, 1, 1)
+        sinc_kernel = sinc_kernel.repeat(3, 1, 1, 1).to(self.device)
         kernel_size = sinc_kernel.size(-1)
         padding = kernel_size // 2
         image_tensor = F.pad(
@@ -114,7 +117,7 @@ class DegradationModel:
             cy=random.randint(0, W),
             sigma=random.uniform(40, 60),
         )
-        mask = mask.unsqueeze(0).unsqueeze(0).expand(B, C, H, W)
+        mask = mask.unsqueeze(0).unsqueeze(0).expand(B, C, H, W).to(self.device)
 
         w0 = mask
         w1 = (1 - mask) * mask
@@ -141,7 +144,7 @@ class DegradationModel:
             cy=random.randint(0, W),
             sigma=random.uniform(40, 60),
         )
-        mask = mask.unsqueeze(0).unsqueeze(0).expand(B, C, H, W)
+        mask = mask.unsqueeze(0).unsqueeze(0).expand(B, C, H, W).to(self.device)
 
         w0 = (1 - mask) ** 2
         w1 = (1 - mask) * mask
@@ -150,7 +153,11 @@ class DegradationModel:
         weights = w0 + w1 + w2 + 1e-8
         w0, w1, w2 = w0 / weights, w1 / weights, w2 / weights
 
-        out = w0 * noised[0] + w1 * noised[1] + w2 * noised[2]
+        out = (
+            w0 * noised[0].to(self.device)
+            + w1 * noised[1].to(self.device)
+            + w2 * noised[2].to(self.device)
+        )
 
         return out
 
@@ -158,11 +165,12 @@ class DegradationModel:
         transform = A.RandomBrightnessContrast(
             brightness_limit=0.2, contrast_limit=0.1, p=1.0
         )
-        image_np = image_tensor.numpy()
+        image_np = image_tensor.detach().cpu().numpy()
         image_np = transform(image=image_np)["image"]
-        return torch.from_numpy(image_np)
+        return torch.from_numpy(image_np).to(self.device)
 
     def random_shuffle_degradations(self, image_tensor: Tensor, scale_factor=0.5):
+        image_tensor = image_tensor.to(self.device)
         down_sampling_modes = ["bilinear", "bicubic", "area"]
         degradation_list = [
             self.add_region_dependent_blur,
