@@ -182,7 +182,7 @@ class DegradationModel:
 
         return torch.stack(outs, dim=0)
 
-    def random_shuffle_degradations(self, image_tensor: Tensor, scale_factor=0.5):
+    def random_shuffle_degradations(self, image_tensor: Tensor, scale_factor=0.25):
         image_tensor = image_tensor.to(self.device)
         down_sampling_modes = ["bilinear", "bicubic", "area"]
         degradation_list = [
