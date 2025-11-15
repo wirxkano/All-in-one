@@ -13,7 +13,7 @@ class DegradationModel:
         self.sinc_settings = settings["sinc_settings"]
         self.noise_settings = settings["noise_settings"]
         self.jpeg_compression_settings = settings["jpeg_compression_settings"]
-        self.device = torch.device("cuda" if torch.cuda.is_available else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def add_blur_kernel(self, image_tensor: Tensor, blur_range: tuple):
         image_tensor = image_tensor.to(self.device)
@@ -61,15 +61,20 @@ class DegradationModel:
         return random_add_gaussian_noise_pt(image_tensor, sigma_range)
 
     def add_jpeg_compression(self, image_tensor: Tensor):
-        H, W = image_tensor.shape[-2], image_tensor.shape[-1]
+        image_tensor = image_tensor.to(self.device)
+        B, C, H, W = image_tensor.shape
 
         quality_range = self.jpeg_compression_settings["quality_range"]
-        image_numpy = image_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        image_numpy = random_add_jpg_compression(image_numpy, quality_range)
-        image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).float()
-        image_tensor = transforms.Resize((H, W))(image_tensor)
+        imgs = []
+        for i in range(B):
+            img = image_tensor[i]
+            image_numpy = img.permute(1, 2, 0).cpu().numpy()
+            image_numpy = random_add_jpg_compression(image_numpy, quality_range)
+            img_t = torch.from_numpy(image_numpy).permute(2, 0, 1).float()
+            img_t = transforms.Resize((H, W))(img_t)
+            imgs.append(img_t)
 
-        return image_tensor.unsqueeze(0)
+        return torch.stack(imgs, dim=0)
 
     def add_sinc_kernel(self, image_tensor: Tensor):
         image_tensor = image_tensor.to(self.device)
@@ -162,12 +167,20 @@ class DegradationModel:
         return out
 
     def add_brightness_contrast(self, image_tensor: Tensor):
+        B, C, H, W = image_tensor.shape
         transform = A.RandomBrightnessContrast(
             brightness_limit=0.2, contrast_limit=0.1, p=1.0
         )
-        image_np = image_tensor.detach().cpu().numpy()
-        image_np = transform(image=image_np)["image"]
-        return torch.from_numpy(image_np).to(self.device)
+        outs = []
+        for i in range(B):
+            img = image_tensor[i]
+            img_np = img.permute(1, 2, 0).cpu().numpy()
+            out_np = transform(image=img_np)["image"]
+
+            out_t = torch.from_numpy(out_np).permute(2, 0, 1).to(self.device).float()
+            outs.append(out_t)
+
+        return torch.stack(outs, dim=0)
 
     def random_shuffle_degradations(self, image_tensor: Tensor, scale_factor=0.5):
         image_tensor = image_tensor.to(self.device)
