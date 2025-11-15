@@ -14,6 +14,8 @@ class BaseModel:
     """Base model."""
 
     def __init__(self, opt):
+        if opt["gpu_ids"]:
+            print("=" * 50, "have gpu ids", opt["gpu_ids"])
         self.opt = opt
         self.device = torch.device("cuda" if opt["num_gpu"] != 0 else "cpu")
         self.is_train = opt["is_train"]
